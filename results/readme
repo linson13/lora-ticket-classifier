@@ -1,0 +1,15 @@
+# Results
+
+This folder is populated automatically when you run `src/evaluate.py`
+(or the Colab notebook in `notebooks/run_on_colab.ipynb`):
+
+- `metrics_before.json` — zero-shot base model scores on the held-out test set
+- `metrics_after.json` — LoRA fine-tuned model scores on the same test set
+- `comparison.png` — bar chart comparing the two
+- `sample_outputs.md` — a handful of real before/after example predictions
+
+It's empty right now because these numbers need to come from an actual
+training run on a GPU — nothing here is filled in with placeholder or
+invented numbers. Run the pipeline (see the main README's "Getting started"
+section), then replace this file's contents with your real results and
+commit the generated files in this folder.
