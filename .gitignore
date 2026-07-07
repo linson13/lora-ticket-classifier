@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Model outputs (large files - don't commit adapter weights or checkpoints)
+outputs/
+*.safetensors
+*.bin
+*.pt
+
+# OS/editor
+.DS_Store
+.vscode/
+.ipynb_checkpoints/
