@@ -6,7 +6,72 @@ Colab notebook):
 - `metrics_before.json` — zero-shot base model scores on the held-out test set
 - `metrics_after.json` — LoRA fine-tuned model scores on the same test set
 - `comparison.png` — bar chart comparing the two 
-- `sample_outputs.md` — a handful of real before/after example predictions (add your downloaded copy here)
+- `sample_outputs.md` — a handful of real before/after example predictions 
+# Sample outputs
+
+A few held-out test examples, showing the base model's zero-shot 
+output next to the fine-tuned model's output.
+
+
+**Input:** There's an incorrect charge on my account from the api. Appreciate all the help so far, just wanted this looked at too. No rush on this, whenever is convenient.
+
+- Gold label: `{"intent": "billing_issue", "sentiment": "positive", "urgency": "low", "product_area": "api"}`
+- Base model output: `{
+  "intent": "Request for assistance",
+  "sentiment": "Neutral",
+  "urgency": "High",
+  "product_area": "Customer Support"
+}`
+- Fine-tuned output: `{"intent":"billing_issue","sentiment":"positive","urgency":"medium","product_area":"api"}`
+
+
+**Input:** Hello, please refund order #95381 placed through the mobile app. Not happy with how this has been handled so far. This needs to be resolved immediately.
+
+- Gold label: `{"intent": "refund_request", "sentiment": "negative", "urgency": "high", "product_area": "mobile_app"}`
+- Base model output: `{
+  "intent": "Refund request",
+  "sentiment": "Negative",
+  "urgency": "Immediate",
+  "product_area": "Mobile app"
+}`
+- Fine-tuned output: `{"intent":"refund_request","sentiment":"negative","urgency":"high","product_area":"mobile_app"}`
+
+
+**Input:** Please cancel my plan, I no longer need the billing system. Appreciate all the help so far, just wanted this looked at too. I need this fixed right away, it can't wait.
+
+- Gold label: `{"intent": "cancellation", "sentiment": "positive", "urgency": "high", "product_area": "billing_system"}`
+- Base model output: `{
+  "intent": "Cancel Plan",
+  "sentiment": "Negative",
+  "urgency": "High",
+  "product_area": "Billing System"
+}`
+- Fine-tuned output: `{"intent":"cancellation","sentiment":"positive","urgency":"high","product_area":"billing_system"}`
+
+
+**Input:** I was charged twice for my subscription on the billing system, can someone look into this? I'm getting quite fed up with this recurring problem. I need this fixed right away, it can't wait.
+
+- Gold label: `{"intent": "billing_issue", "sentiment": "frustrated", "urgency": "high", "product_area": "billing_system"}`
+- Base model output: `{
+  "intent": "Customer Service",
+  "sentiment": "Negative",
+  "urgency": "High",
+  "product_area": "Billing System"
+}`
+- Fine-tuned output: `{"intent":"billing_issue","sentiment":"negative","urgency":"high","product_area":"billing_system"}`
+
+
+**Input:** my login for the api says account #3316 is suspended. I've contacted support about this multiple times already with no fix. I need this fixed right away, it can't wait.
+
+- Gold label: `{"intent": "account_access", "sentiment": "frustrated", "urgency": "high", "product_area": "api"}`
+- Base model output: `{
+  "intent": "Request suspension of account",
+  "sentiment": "Negative",
+  "urgency": "Immediate",
+  "product_area": "API"
+}`
+- Fine-tuned output: `{"intent":"account_access","sentiment":"negative","urgency":"high","product_area":"api"}`
+
 
 See the main README's "Results" section for the full write-up and the
 round-1-vs-round-2 comparison.
