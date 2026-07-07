@@ -1,0 +1,196 @@
+"""
+Evaluates and compares the base model (zero-shot) against the LoRA
+fine-tuned model on the held-out test set.
+
+For each test example, both models are prompted to produce the structured
+JSON label. This script measures:
+    - JSON validity rate (did the model output parseable JSON at all)
+    - Per-field exact-match accuracy (intent, sentiment, urgency, product_area)
+    - Overall exact-match accuracy (all four fields correct)
+
+Outputs:
+    results/metrics_before.json   zero-shot base model scores
+    results/metrics_after.json    fine-tuned model scores
+    results/comparison.png        bar chart of before vs after
+    results/sample_outputs.md     a handful of example predictions, for the README
+
+Usage:
+    python src/evaluate.py \
+        --model_name Qwen/Qwen2.5-0.5B-Instruct \
+        --adapter_dir outputs/lora-adapter \
+        --test_file data/test.jsonl
+"""
+
+import argparse
+import json
+import re
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from train import SYSTEM_PROMPT
+
+FIELDS = ["intent", "sentiment", "urgency", "product_area"]
+
+
+def load_test_set(path: str) -> list:
+    examples = []
+    with open(path) as f:
+        for line in f:
+            examples.append(json.loads(line))
+    return examples
+
+
+def build_prompt(tokenizer, user_input: str) -> str:
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_input},
+    ]
+    return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+
+def extract_json(text: str) -> dict | None:
+    """Pull the first {...} block out of a model's response and parse it."""
+    match = re.search(r"\{.*?\}", text, re.DOTALL)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+
+
+@torch.no_grad()
+def generate(model, tokenizer, prompt: str, max_new_tokens: int = 60) -> str:
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    output = model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        pad_token_id=tokenizer.pad_token_id,
+    )
+    generated = output[0][inputs["input_ids"].shape[1]:]
+    return tokenizer.decode(generated, skip_special_tokens=True)
+
+
+def score(model, tokenizer, test_set: list, label: str) -> dict:
+    field_correct = {f: 0 for f in FIELDS}
+    exact_match = 0
+    valid_json = 0
+    samples = []
+
+    for i, example in enumerate(test_set):
+        prompt = build_prompt(tokenizer, example["input"])
+        raw_output = generate(model, tokenizer, prompt)
+        predicted = extract_json(raw_output)
+        gold = json.loads(example["output"])
+
+        if predicted is not None:
+            valid_json += 1
+            all_correct = True
+            for f in FIELDS:
+                if predicted.get(f) == gold.get(f):
+                    field_correct[f] += 1
+                else:
+                    all_correct = False
+            if all_correct:
+                exact_match += 1
+        else:
+            all_correct = False
+
+        if i < 5:
+            samples.append({
+                "input": example["input"],
+                "gold": gold,
+                "predicted_raw": raw_output.strip(),
+                "correct": all_correct,
+            })
+
+    n = len(test_set)
+    results = {
+        "label": label,
+        "n_examples": n,
+        "json_validity_rate": round(valid_json / n, 4),
+        "exact_match_accuracy": round(exact_match / n, 4),
+        "field_accuracy": {f: round(field_correct[f] / n, 4) for f in FIELDS},
+        "samples": samples,
+    }
+    return results
+
+
+def plot_comparison(before: dict, after: dict, out_path: str):
+    labels = ["JSON validity", "Exact match"] + [f"{f} acc." for f in FIELDS]
+    before_vals = [before["json_validity_rate"], before["exact_match_accuracy"]] + [
+        before["field_accuracy"][f] for f in FIELDS
+    ]
+    after_vals = [after["json_validity_rate"], after["exact_match_accuracy"]] + [
+        after["field_accuracy"][f] for f in FIELDS
+    ]
+
+    x = range(len(labels))
+    width = 0.35
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.bar([i - width / 2 for i in x], before_vals, width, label="Base model (zero-shot)")
+    ax.bar([i + width / 2 for i in x], after_vals, width, label="LoRA fine-tuned")
+    ax.set_ylabel("Score")
+    ax.set_ylim(0, 1.05)
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels, rotation=30, ha="right")
+    ax.set_title("Before vs. after LoRA fine-tuning")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    print(f"Saved comparison chart to {out_path}")
+
+
+def write_sample_outputs_md(before: dict, after: dict, out_path: str):
+    lines = ["# Sample outputs\n"]
+    lines.append("A few held-out test examples, showing the base model's zero-shot ")
+    lines.append("output next to the fine-tuned model's output.\n")
+    for b, a in zip(before["samples"], after["samples"]):
+        lines.append(f"\n**Input:** {b['input']}\n")
+        lines.append(f"- Gold label: `{json.dumps(b['gold'])}`")
+        lines.append(f"- Base model output: `{b['predicted_raw']}`")
+        lines.append(f"- Fine-tuned output: `{a['predicted_raw']}`\n")
+    Path(out_path).write_text("\n".join(lines))
+    print(f"Saved sample outputs to {out_path}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Evaluate base vs. fine-tuned model.")
+    parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-0.5B-Instruct")
+    parser.add_argument("--adapter_dir", type=str, default="outputs/lora-adapter")
+    parser.add_argument("--test_file", type=str, default="data/test.jsonl")
+    parser.add_argument("--results_dir", type=str, default="results")
+    args = parser.parse_args()
+
+    Path(args.results_dir).mkdir(parents=True, exist_ok=True)
+    test_set = load_test_set(args.test_file)
+
+    print("Loading base model for zero-shot evaluation")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    base_model = AutoModelForCausalLM.from_pretrained(args.model_name, device_map="auto")
+    before = score(base_model, tokenizer, test_set, "base (zero-shot)")
+    with open(f"{args.results_dir}/metrics_before.json", "w") as f:
+        json.dump(before, f, indent=2)
+    print("Zero-shot results:", json.dumps({k: v for k, v in before.items() if k != "samples"}, indent=2))
+
+    print(f"\nLoading LoRA adapter from {args.adapter_dir}")
+    fine_tuned_model = PeftModel.from_pretrained(base_model, args.adapter_dir)
+    after = score(fine_tuned_model, tokenizer, test_set, "LoRA fine-tuned")
+    with open(f"{args.results_dir}/metrics_after.json", "w") as f:
+        json.dump(after, f, indent=2)
+    print("Fine-tuned results:", json.dumps({k: v for k, v in after.items() if k != "samples"}, indent=2))
+
+    plot_comparison(before, after, f"{args.results_dir}/comparison.png")
+    write_sample_outputs_md(before, after, f"{args.results_dir}/sample_outputs.md")
+
+
+if __name__ == "__main__":
+    main()
