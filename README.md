@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/29733417/README.md)
 # LoRA Fine-Tuning: Support Ticket Structured Extraction
 
 Fine-tunes a small open-source language model with **LoRA/QLoRA** to convert
@@ -105,31 +104,67 @@ python data/generate_dataset.py --train 800 --val 100 --test 100 --seed 42
 
 ## Results
 
-_Not filled in yet — these numbers have to come from an actual training
-run on a GPU, and I'm not going to put invented numbers here. See
-[`results/README.md`](results/README.md) and the **Getting started**
-section below: run the pipeline (10-20 minutes on a free Colab GPU), then
-replace this section with your real `results/comparison.png` chart and the
-metrics from `results/metrics_before.json` / `results/metrics_after.json`._
+Evaluated on the 100-example held-out test set, comparing the base model's
+zero-shot output against the same model after LoRA fine-tuning (3 epochs,
+`lora_r=16`, `lora_alpha=32`, `Qwen/Qwen2.5-0.5B-Instruct`), on the current
+version of the dataset where urgency and sentiment are signaled by explicit
+wording:
 
-A good version of this section, once you have real numbers, looks like:
-
-```markdown
 | Metric                  | Base model (zero-shot) | LoRA fine-tuned |
 |--------------------------|:----------------------:|:---------------:|
-| JSON validity rate        |          ...           |       ...       |
-| Exact-match accuracy       |          ...           |       ...       |
-| Intent accuracy            |          ...           |       ...       |
-| Sentiment accuracy          |          ...           |       ...       |
-| Urgency accuracy             |          ...           |       ...       |
-| Product area accuracy         |          ...           |       ...       |
+| JSON validity rate        |          100%           |       100%       |
+| Exact-match accuracy       |           0%            |       62%        |
+| Intent accuracy            |           0%            |       97%        |
+| Sentiment accuracy          |           8%            |       71%        |
+| Urgency accuracy             |           7%            |       94%        |
+| Product area accuracy         |           6%            |       97%        |
 
 ![Before vs after comparison](results/comparison.png)
-```
 
-Also link `results/sample_outputs.md` here once generated — a few real
-before/after examples are often more convincing to a reviewer than the
-aggregate numbers alone.
+**What this shows:**
+
+- Every field improved sharply after fine-tuning, and overall exact-match
+  accuracy (all four fields correct at once) went from 0% to 62% — a real,
+  usable result for a 0.5B model with a single LoRA pass.
+- **Intent, urgency, and product area (all 94-97%)** are essentially solved
+  by fine-tuning. The base model's near-zero scores mostly weren't wrong
+  reasoning — it was using its own label vocabulary (`"Immediate"` instead
+  of `"high"`, `"Customer Service"` instead of `"billing_issue"`) rather
+  than the exact schema the task requires. Fine-tuning taught it that exact
+  closed vocabulary.
+- **Sentiment (71%) is the weakest of the four**, and the errors are
+  informative rather than random: in the samples above, the model mixes up
+  `"negative"` and `"frustrated"` twice (e.g. predicting `negative` for a
+  message whose gold label was `frustrated`). Those two labels are
+  genuinely close in meaning — a message can plausibly read as either — so
+  this looks like a harder, more subjective boundary rather than a
+  data-generation flaw like the one found in round 1 (see below).
+
+### Round 1 vs round 2
+
+The first version of `generate_dataset.py` assigned `urgency` to each
+example independently of the message content, so there was no genuine
+signal in the text for any model to learn from:
+
+| Metric                  | Round 1 (base) | Round 1 (fine-tuned) | Round 2 (base) | Round 2 (fine-tuned) |
+|--------------------------|:---------------:|:----------------------:|:----------------:|:-----------------------:|
+| Exact-match accuracy       |       0%        |           8%            |        0%        |           62%            |
+| Sentiment accuracy          |       7%        |          22%            |        8%         |           71%            |
+| Urgency accuracy             |      16%        |          31%            |        7%         |           94%            |
+
+Urgency in particular went from performing at random chance (31% on a
+3-way label, vs. 33% chance) to 94% once the dataset actually gave the
+model something to learn from — direct evidence that the round-1 ceiling
+was a dataset design flaw, not a fine-tuning or model-capacity limit. This
+comparison is worth keeping in the README even though round 1 is no longer
+the "current" result: it's a concrete example of diagnosing why a model
+underperforms and fixing the actual cause rather than just tuning
+hyperparameters blindly.
+
+See [`results/sample_outputs.md`](results/sample_outputs.md) for the raw
+before/after model outputs on individual test examples.
+
+
 
 ## Project structure
 
@@ -229,6 +264,14 @@ A CUDA-capable GPU with at least ~8GB VRAM is recommended for the default
 
 ## Roadmap
 
+- [x] Tie `urgency` and `sentiment` labels to actual keywords/phrasing in
+      `generate_dataset.py` instead of assigning them independently of the
+      text — done; see "Round 1 vs round 2" in Results
+- [x] Re-run training and evaluation on the round-2 dataset and record the
+      new numbers — done; exact-match went from 8% to 62%
+- [ ] Investigate the `negative` vs `frustrated` sentiment confusion —
+      possibly merge them into one label, or make the phrase banks for the
+      two more distinct
 - [ ] Add a small hyperparameter sweep (LoRA rank, learning rate) with
       results compared
 - [ ] Add a DPO preference-tuning pass on top of the SFT model
@@ -240,3 +283,4 @@ A CUDA-capable GPU with at least ~8GB VRAM is recommended for the default
 ## License
 
 Released under the [MIT License](LICENSE).
+[Uploading README.md…]()
