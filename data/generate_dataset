@@ -1,0 +1,205 @@
+"""
+Generates a synthetic support-ticket dataset for the structured-extraction
+fine-tuning task.
+
+Each example is a raw, free-text customer support message paired with the
+structured JSON label a fine-tuned model should learn to produce:
+
+    {"intent": ..., "sentiment": ..., "urgency": ..., "product_area": ...}
+
+The dataset is synthetic and templated (not scraped or copied from anywhere),
+so it's safe to commit and share. It is deliberately noisy in phrasing
+(varied templates, filler, some informal language) so the model has to learn
+the underlying pattern rather than memorize surface wording.
+
+Usage:
+    python data/generate_dataset.py --train 800 --val 100 --test 100 --seed 42
+"""
+
+import argparse
+import json
+import random
+from pathlib import Path
+
+INTENTS = [
+    "billing_issue",
+    "technical_issue",
+    "refund_request",
+    "account_access",
+    "feature_request",
+    "cancellation",
+]
+
+SENTIMENTS = ["positive", "neutral", "negative", "frustrated"]
+URGENCY = ["low", "medium", "high"]
+PRODUCT_AREAS = ["mobile_app", "web_dashboard", "api", "billing_system", "account_settings"]
+
+# Multiple phrasing templates per intent, so the model can't just pattern-match
+# a single sentence shape. {area} and {filler} are substituted at generation time.
+TEMPLATES = {
+    "billing_issue": [
+        "I was charged twice for my subscription on the {area}, can someone look into this?",
+        "There's an incorrect charge on my account from the {area}. {filler}",
+        "My invoice from the {area} shows the wrong amount this month.",
+        "Why does my bill from the {area} not match what I signed up for?",
+        "{greeting} I noticed an extra charge on the {area}, reference #{ref}.",
+        "The {area} billed me for a plan I never selected.",
+    ],
+    "technical_issue": [
+        "The {area} keeps crashing every time I try to log in. {filler}",
+        "I'm getting an error message on the {area} and can't proceed.",
+        "The {area} has been really slow for the past two days.",
+        "Nothing loads on the {area} anymore, it just shows a blank screen.",
+        "{greeting} the {area} throws error code {ref} whenever I open it.",
+        "Uploads keep failing on the {area}, tried three times already.",
+    ],
+    "refund_request": [
+        "I'd like a refund for my last payment through the {area}. {filler}",
+        "Can I get my money back? The {area} didn't work as expected.",
+        "Requesting a refund since I was double-billed on the {area}.",
+        "I want to cancel and get a refund for the {area} charge.",
+        "{greeting} please refund order #{ref} placed through the {area}.",
+        "The {area} promised a feature that isn't there, I'd like a refund.",
+    ],
+    "account_access": [
+        "I can't log into the {area} even after resetting my password. {filler}",
+        "My account on the {area} got locked and I don't know why.",
+        "I'm locked out of the {area}, please help me regain access.",
+        "Two-factor authentication isn't working on the {area}.",
+        "{greeting} my login for the {area} says account #{ref} is suspended.",
+        "The verification email for the {area} never arrives.",
+    ],
+    "feature_request": [
+        "It would be great if the {area} supported dark mode. {filler}",
+        "Could you add export to CSV on the {area}?",
+        "I'd love to see keyboard shortcuts added to the {area}.",
+        "Any chance the {area} could integrate with calendar apps?",
+        "{greeting} it would help a lot if the {area} had bulk editing.",
+        "Would you consider adding offline mode to the {area}?",
+    ],
+    "cancellation": [
+        "I want to cancel my subscription tied to the {area}. {filler}",
+        "Please cancel my plan, I no longer need the {area}.",
+        "How do I cancel access to the {area} before my renewal date?",
+        "Cancelling my account effective immediately, the {area} isn't for me.",
+        "{greeting} please cancel plan #{ref} linked to the {area}.",
+        "I'd like to downgrade and eventually cancel my {area} plan.",
+    ],
+}
+
+GREETINGS = ["Hi,", "Hello,", "Hey team,", "To whom it may concern,", ""]
+
+FILLERS = [
+    "This is the second time this has happened.",
+    "Please get back to me as soon as possible.",
+    "Thanks in advance for the help.",
+    "I've been a customer for two years and this is frustrating.",
+    "",
+    "Not sure who else to contact about this.",
+    "Let me know what you need from me to fix this.",
+    "Appreciate any update on timing.",
+]
+
+SENTIMENT_FILLERS = {
+    "frustrated": [
+        "This is honestly really annoying at this point.",
+        "I've contacted support three times already with no fix.",
+    ],
+    "negative": [
+        "Not happy with how this has been handled.",
+    ],
+    "positive": [
+        "Otherwise really enjoying the product, just need this sorted.",
+    ],
+    "neutral": [],
+}
+
+
+def build_example(rng: random.Random) -> dict:
+    intent = rng.choice(INTENTS)
+    sentiment = rng.choice(SENTIMENTS)
+    urgency = rng.choice(URGENCY)
+    area = rng.choice(PRODUCT_AREAS)
+
+    template = rng.choice(TEMPLATES[intent])
+    filler_pool = SENTIMENT_FILLERS.get(sentiment, []) + FILLERS
+    filler = rng.choice(filler_pool)
+    greeting = rng.choice(GREETINGS)
+    ref = rng.randint(1000, 99999)
+
+    text = template.format(
+        area=area.replace("_", " "), filler=filler, greeting=greeting, ref=ref
+    ).strip()
+    text = " ".join(text.split())  # collapse extra whitespace from empty fillers/greetings
+
+    label = {
+        "intent": intent,
+        "sentiment": sentiment,
+        "urgency": urgency,
+        "product_area": area,
+    }
+
+    return {"input": text, "output": json.dumps(label, separators=(",", ":"))}
+
+
+def generate(n: int, rng: random.Random) -> list:
+    seen = set()
+    examples = []
+    attempts = 0
+    max_attempts = n * 50
+
+    while len(examples) < n and attempts < max_attempts:
+        attempts += 1
+        ex = build_example(rng)
+        key = ex["input"]
+        if key in seen:
+            continue
+        seen.add(key)
+        examples.append(ex)
+
+    if len(examples) < n:
+        raise RuntimeError(
+            f"Only generated {len(examples)}/{n} unique examples after {attempts} attempts. "
+            "Reduce the requested count or add more template/filler variety."
+        )
+    return examples
+
+
+def write_jsonl(path: Path, examples: list) -> None:
+    with open(path, "w") as f:
+        for ex in examples:
+            f.write(json.dumps(ex) + "\n")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate synthetic support ticket dataset.")
+    parser.add_argument("--train", type=int, default=800)
+    parser.add_argument("--val", type=int, default=100)
+    parser.add_argument("--test", type=int, default=100)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--out_dir", type=str, default=str(Path(__file__).parent))
+    args = parser.parse_args()
+
+    rng = random.Random(args.seed)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    total = args.train + args.val + args.test
+    all_examples = generate(total, rng)
+    rng.shuffle(all_examples)
+
+    train = all_examples[: args.train]
+    val = all_examples[args.train : args.train + args.val]
+    test = all_examples[args.train + args.val :]
+
+    write_jsonl(out_dir / "train.jsonl", train)
+    write_jsonl(out_dir / "val.jsonl", val)
+    write_jsonl(out_dir / "test.jsonl", test)
+
+    print(f"Wrote {len(train)} train / {len(val)} val / {len(test)} test examples to {out_dir}")
+    print("\nSample example:")
+    print(json.dumps(train[0], indent=2))
+
+
+if __name__ == "__main__":
+    main()
