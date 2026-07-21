@@ -1,5 +1,11 @@
 # LoRA Fine-Tuning: Support Ticket Structured Extraction
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/linson13/lora-ticket-classifier/blob/main/notebooks/run_on_colab.ipynb)
+[![Stars](https://img.shields.io/github/stars/linson13/lora-ticket-classifier?style=flat-square)](https://github.com/linson13/lora-ticket-classifier/stargazers)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)
+![Python](https://img.shields.io/badge/-Python-555?style=flat-square&logo=python)
+![PyTorch](https://img.shields.io/badge/-PyTorch-555?style=flat-square&logo=pytorch)
+
 Fine-tunes a small open-source language model with **LoRA/QLoRA** to convert
 raw, messy customer support messages into structured JSON — the kind of
 extraction task real support/CRM systems need to route and triage tickets
@@ -205,7 +211,7 @@ lora-ticket-classifier/
 ### Option B: Your own machine with a GPU
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/lora-ticket-classifier.git
+git clone https://github.com/linson13/lora-ticket-classifier.git
 cd lora-ticket-classifier
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
@@ -283,4 +289,3 @@ A CUDA-capable GPU with at least ~8GB VRAM is recommended for the default
 ## License
 
 Released under the [MIT License](LICENSE).
-[Uploading README.md…]()
